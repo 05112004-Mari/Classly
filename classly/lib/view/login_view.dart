@@ -11,6 +11,7 @@ class _LoginViewState extends State<LoginView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold (
+       backgroundColor: const Color.fromARGB(255, 191, 253, 253),
       body: SafeArea (
         child: Padding(
           padding: EdgeInsets.all (20),
