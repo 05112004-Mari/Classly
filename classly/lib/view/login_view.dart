@@ -79,7 +79,7 @@ class _LoginViewState extends State<LoginView> {
                 border: Border.all(color: const Color(0xFFCFF5EC)),
                 boxShadow: [
                   BoxShadow(
-                    color: _teal.withOpacity(0.20),
+                    color: _teal.withValues(alpha: 0.20),
                     blurRadius: 24,
                     offset: const Offset(0, 8),
                   ),
@@ -102,7 +102,7 @@ class _LoginViewState extends State<LoginView> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _teal.withOpacity(0.35),
+                          color: _teal.withValues(alpha: 0.35),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
@@ -200,7 +200,7 @@ class _LoginViewState extends State<LoginView> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _teal.withOpacity(0.35),
+                          color: _teal.withValues(alpha: 0.35),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
