@@ -64,7 +64,7 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
                 onPressed: (){
                   Navigator.pushNamed(
                       context,
-                      'perfil'
+                      'inicio'
                   );
                 },
                 child: Text('Cadastrar'),

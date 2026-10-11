@@ -6,6 +6,7 @@ import 'view/login_view.dart';
 import 'view/perfil_view.dart';
 import 'view/recuperar_senha_view.dart';
 import 'view/sobre_view.dart';
+import 'view/inicio_view.dart';
 
 void main() {
   runApp(DevicePreview(builder: (context) => const MainApp()));
@@ -30,6 +31,7 @@ class MainApp extends StatelessWidget {
         'perfil': (context) => const PerfilView(),
         'recuperar_senha': (context) => const RecuperarSenhaView(),
         'sobre': (context) => const SobreView(),
+        'inicio': (context) => const InicioView(),
       },
 
       onUnknownRoute: (settings) {
