@@ -333,8 +333,8 @@ class _LoginViewState extends State<LoginView> {
                           fontSize: 13,
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () {
+                      TextButton(
+                        onPressed: () {
                           Navigator.pushNamed(context, 'cadastro_usuario');
                         },
                         child: const Text(

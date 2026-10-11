@@ -251,8 +251,11 @@ class _RecuperarSenhaViewState extends State<RecuperarSenhaView> {
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: () {
-                        _mostrarMensagemEnviado();
+                      onPressed: () async {
+                        await _mostrarMensagemEnviado();
+
+                        if (!mounted) return;
+                        Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
