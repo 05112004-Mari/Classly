@@ -1,15 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:classly/widgets/barra_navegacao.dart';
 
-class InicioView extends StatefulWidget {
+class InicioView extends StatelessWidget {
   const InicioView({super.key});
-
-  @override
-  State<InicioView> createState() => _InicioViewState();
-}
-
-class _InicioViewState extends State<InicioView> {
-  // Variável para controlar qual aba está selecionada atualmente
-  int _currentIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +10,7 @@ class _InicioViewState extends State<InicioView> {
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -43,48 +36,15 @@ class _InicioViewState extends State<InicioView> {
                     ),
                   ],
                 ),
+                // child: ... coloque aqui o conteúdo do card
               ),
             ),
           ),
         ),
       ),
-      
-      // BARRA INFERIOR NO FORMATO DESEJADO
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: const Color(0xFF00B8A0),
-        unselectedItemColor: Colors.grey,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view_outlined),
-            activeIcon: Icon(Icons.grid_view),
-            label: 'Kanban',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today),
-            label: 'Planejar',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.book_outlined),
-            activeIcon: Icon(Icons.book),
-            label: 'Aulas',
-          ),
-        ],
-      ),
+
+      // Barra inferior reutilizável (aba 0 = Início, 1 = Kanban, 2 = Planejar, 3 = Aulas)
+      bottomNavigationBar: const BarraNavegacao(currentIndex: 0),
     );
   }
 }

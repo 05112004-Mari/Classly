@@ -1,6 +1,7 @@
   import 'package:flutter/material.dart';
   import 'package:classly/model/aula_model.dart';
   import 'package:classly/controller/aulas_controller.dart';
+  import 'package:classly/widgets/barra_navegacao.dart';
   
 const _verde = Color(0xFF00BFA5);
 const _verdeEscuro = Color(0xFF00897B);
@@ -108,6 +109,8 @@ class _AulasViewState extends State<AulasView> {
           },
         ),
       ),
+      // Barra inferior reutilizável (aba 0 = Início, 1 = Kanban, 2 = Planejar, 3 = Aulas)
+      bottomNavigationBar: const BarraNavegacao(currentIndex: 3),
     );
   }
 }
