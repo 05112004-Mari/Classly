@@ -264,7 +264,6 @@ class _LoginViewState extends State<LoginView> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: const [
-                          // Troque por Image.asset('assets/google.png') se tiver o logo
                           Text(
                             'G',
                             style: TextStyle(
