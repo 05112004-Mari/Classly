@@ -104,6 +104,47 @@ class _SobreViewState extends State<SobreView> {
 
                   const SizedBox(height: 24),
 
+                  _secao(
+                    'Objetivo do aplicativo',
+                    const Text(
+                      'O Classly é um aplicativo para organizar a vida acadêmica '
+                      'em um só lugar: cadastro da grade de aulas, planejamento '
+                      'de estudos, mestas da semana e acompanhamento de tarefas.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: Color(0xFF475569), 
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  _secao(
+                    'Equipe de desenvolvimento',
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _integrante('Mariana Cristina dos Santos'),
+                        _integrante('Maria Fernada Ribeiro Tavares'),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  _secao(
+                    'Informações adicionais',
+                    Column(
+                      children: [
+                        _linhaInfo('Disciplina', 'Programação para Dispositivos Moveis'),
+                        _linhaInfo('Instituição', 'Fatec - Faculdade de Tecnologia de Ribeirão Preto'),
+                        _linhaInfo('Professor', 'Rodrigo de Oliveira Plotze'),
+                        _linhaInfo('Versão', '1.0.0'),
+                      ],
+                    ),
+                  ),
+
                  ],
                 ),
               ),  
@@ -113,4 +154,84 @@ class _SobreViewState extends State<SobreView> {
       ),
     );
   }
+}
+
+Widget _secao(String titulo, Widget conteudo) {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF0FDFA),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFB2DFDB)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF00796B),
+          ),
+        ),
+        
+        const SizedBox(height: 10),
+        conteudo,
+      ],
+    ),
+  );
+}
+
+Widget _integrante(String nome) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      children: [
+        const Icon(Icons.person_outline, size: 18, color: Color(0xFF00796B)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            nome,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _linhaInfo(String rotulo, String valor) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 90,
+          child: Text(
+            rotulo,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF475569),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            valor,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ),
+      ],
+    ), 
+  );
 }
