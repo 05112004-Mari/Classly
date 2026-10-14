@@ -342,9 +342,8 @@ class _Metrica extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Formulário (Nova Aula / Editar Aula)
-// ---------------------------------------------------------------------------
 class _AulaFormDialog extends StatefulWidget {
   final AulasController controller;
   final Aula? aula;

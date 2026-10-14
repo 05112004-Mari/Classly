@@ -68,11 +68,9 @@ class _PerfilViewState extends State<PerfilView> {
     try {
       final novoNome = _nomeController.text.trim();
 
-      // TODO: persistir no seu backend (API, Firebase, banco local...)
-      // await seuServico.atualizarNome(novoNome);
       await Future.delayed(const Duration(milliseconds: 400));
 
-      // Atualiza o nome usado nas demais telas
+      // Atualiza o nome
       _sessao.nome.value = novoNome;
       _nomeController.text = novoNome;
 
@@ -287,7 +285,7 @@ class _PerfilViewState extends State<PerfilView> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Cancelar (opcional)
+                    // Cancelar 
                     SizedBox(
                       width: double.infinity,
                       height: 48,

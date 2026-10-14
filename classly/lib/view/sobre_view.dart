@@ -104,6 +104,7 @@ class _SobreViewState extends State<SobreView> {
 
                   const SizedBox(height: 24),
 
+                  // Informações sobre
                   _secao(
                     'Objetivo do aplicativo',
                     const Text(

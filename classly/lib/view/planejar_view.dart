@@ -12,16 +12,13 @@ const _gradiente = LinearGradient(
   end: Alignment.bottomRight,
 );
 
-// Cores por prioridade: (fundo, texto)
+// Cores por prioridade
 const _coresPrioridade = {
   1: (Color(0xFF00796B), Colors.white),
   2: (Color(0xFF00D4B4), Colors.white),
   3: (Color(0xFFB2F5EA), Color(0xFF00695C)),
 };
 
-// ---------------------------------------------------------------------------
-// Helpers compartilhados
-// ---------------------------------------------------------------------------
 InputDecoration _decoracao(String hint) => InputDecoration(
       hintText: hint,
       filled: true,
@@ -70,9 +67,8 @@ Future<bool> _confirmar(BuildContext context, String titulo, String texto) async
   return r == true;
 }
 
-// ---------------------------------------------------------------------------
+
 // Tela
-// ---------------------------------------------------------------------------
 class PlanejarView extends StatefulWidget {
   const PlanejarView({super.key});
 
@@ -191,9 +187,8 @@ class _PlanejarViewState extends State<PlanejarView> {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Cartão de seção (Calendário / Plano / Metas)
-// ---------------------------------------------------------------------------
 class _CartaoSecao extends StatelessWidget {
   final IconData icone;
   final String titulo;
@@ -245,9 +240,7 @@ class _CartaoSecao extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Calendário
-// ---------------------------------------------------------------------------
 class _Calendario extends StatefulWidget {
   final Map<DateTime, int> prioridades;
   const _Calendario({required this.prioridades});
@@ -324,6 +317,8 @@ class _CalendarioState extends State<_Calendario> {
           ],
         ),
         const SizedBox(height: 10),
+
+        //Uso de GridView para exibir calendario
         GridView.count(
           crossAxisCount: 7,
           shrinkWrap: true,
@@ -367,9 +362,8 @@ class _CelulaDia extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Legenda
-// ---------------------------------------------------------------------------
 class _Legenda extends StatelessWidget {
   const _Legenda();
 
@@ -417,9 +411,8 @@ class _Legenda extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Plano de estudo (card)
-// ---------------------------------------------------------------------------
 class _CartaoPlano extends StatelessWidget {
   final PlanoEstudo plano;
   final VoidCallback onEditar;
@@ -507,9 +500,8 @@ class _CartaoPlano extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Meta (card)
-// ---------------------------------------------------------------------------
 class _CartaoMeta extends StatelessWidget {
   final Meta meta;
   final VoidCallback onEditar;

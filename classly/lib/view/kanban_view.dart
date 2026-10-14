@@ -176,6 +176,7 @@ class _KanbanViewState extends State<KanbanView> {
                           return Scrollbar(
                             controller: _scroll,
                             thumbVisibility: true,
+                            //Lista rolável na horizontal, exibindo as tarefas por status
                             child: ListView(
                               controller: _scroll,
                               scrollDirection: Axis.horizontal,
@@ -303,9 +304,8 @@ class _ColunaKanban extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Card da tarefa
-// ---------------------------------------------------------------------------
 class _CartaoTarefa extends StatelessWidget {
   final Tarefa tarefa;
   final VoidCallback onTocar;
@@ -411,9 +411,8 @@ class _CartaoTarefa extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Formulário (Nova Tarefa / Editar Tarefa)
-// ---------------------------------------------------------------------------
 InputDecoration _decoracao(String hint) => InputDecoration(
       hintText: hint,
       filled: true,
