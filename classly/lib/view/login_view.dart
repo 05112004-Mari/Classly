@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:classly/model/sessao_usuario_model.dart';
+import 'package:classly/model/repositorio_usuarios_model.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -8,6 +10,17 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
+  final _emailController = TextEditingController();
+  final _senhaController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _senhaController.dispose();
+    super.dispose();
+  }
+
+
   final _formKey = GlobalKey<FormState>();
   bool _senhaOculta = true;
 
@@ -148,6 +161,7 @@ class _LoginViewState extends State<LoginView> {
                     _label('E-mail'),
                     const SizedBox(height: 8),
                     TextFormField(
+                      controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       validator: (valor) {
                         final texto = (valor ?? '').trim();
@@ -176,6 +190,7 @@ class _LoginViewState extends State<LoginView> {
                     _label('Senha'),
                     const SizedBox(height: 8),
                     TextFormField(
+                      controller: _senhaController,
                       obscureText: _senhaOculta,
                       validator: (valor) {
                         if ((valor ?? '').isEmpty) {
@@ -239,10 +254,17 @@ class _LoginViewState extends State<LoginView> {
                       ),
                       child: ElevatedButton(
                         onPressed: () {
-                          // Só entra se e-mail e senha estiverem válidos
                           if (!_formKey.currentState!.validate()) return;
 
-                          Navigator.pushNamed(context, 'inicio');
+                          final email = _emailController.text.trim();
+                          final usuario = RepositorioUsuarios.instancia.buscarPorEmail(email);
+
+                          SessaoUsuario.instancia.iniciar(
+                            nome: usuario?.nome ?? email.split('@').first,
+                            email: email,
+                          );
+
+                          Navigator.pushNamedAndRemoveUntil(context, 'inicio', (r) => false);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,

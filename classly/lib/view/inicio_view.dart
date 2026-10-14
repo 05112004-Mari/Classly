@@ -137,7 +137,7 @@ class _InicioViewState extends State<InicioView> {
       // Botão fadicionar
       floatingActionButton: FloatingActionButton(
         onPressed: _openCreateModal,
-        backgroundColor: Colors.teal.shade600,
+        backgroundColor: Color.fromARGB(255, 0, 137, 123),
         foregroundColor: Colors.white,
         shape: const CircleBorder(),
         child: const Icon(Icons.add),

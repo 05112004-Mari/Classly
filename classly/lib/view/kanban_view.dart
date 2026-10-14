@@ -11,7 +11,6 @@ const _gradiente = LinearGradient(
   end: Alignment.bottomRight,
 );
 
-// Mudou de StatelessWidget para StatefulWidget só para guardar o controller.
 class KanbanView extends StatefulWidget {
   const KanbanView({super.key});
 
@@ -209,9 +208,8 @@ class _KanbanViewState extends State<KanbanView> {
   }
 }
 
-// ---------------------------------------------------------------------------
+
 // Coluna
-// ---------------------------------------------------------------------------
 class _ColunaKanban extends StatelessWidget {
   final StatusTarefa status;
   final List<Tarefa> tarefas;
