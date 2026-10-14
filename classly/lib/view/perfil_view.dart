@@ -44,7 +44,6 @@ class _PerfilViewState extends State<PerfilView> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Linha superior: seta de voltar + botão Sobre
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -87,6 +86,7 @@ class _PerfilViewState extends State<PerfilView> {
                   ),
 
                   // conteudo tela
+                  
                 ],
               ),
 
