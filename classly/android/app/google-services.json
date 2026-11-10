@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "995678340237",
+    "project_id": "clay-19fa5",
+    "storage_bucket": "clay-19fa5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:995678340237:android:535e5c9d6c8f1094fb0ec4",
+        "android_client_info": {
+          "package_name": "com.example.classly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHLtkxr0PzZLQ7uq7kbrYk4IEDWNIZQSc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
