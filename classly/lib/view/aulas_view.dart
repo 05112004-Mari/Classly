@@ -1,4 +1,4 @@
-  import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
   import 'package:classly/model/aula_model.dart';
   import 'package:classly/controller/aulas_controller.dart';
   import 'package:classly/widgets/barra_navegacao.dart';
@@ -29,10 +29,25 @@ class AulasView extends StatefulWidget {
 class _AulasViewState extends State<AulasView> {
   final AulasController _controller = AulasController();
 
+  // Stream com as aulas do usuário (tempo real)
+  late Stream<List<Aula>> _stream;
+
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _stream = _controller.aulasDoUsuario();
+  }
+
+  void _mensagem(String texto, {bool erro = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(texto),
+          backgroundColor: erro ? Colors.red.shade700 : _verde,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   Future<void> _abrirFormulario([Aula? aula]) {
@@ -59,7 +74,16 @@ class _AulasViewState extends State<AulasView> {
         ],
       ),
     );
-    if (confirmou == true) _controller.remover(aula.id);
+    if (confirmou != true) return;
+
+    try {
+      await _controller.remover(aula.id);
+      if (!mounted) return;
+      _mensagem('Aula removida.');
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível remover a aula.', erro: true);
+    }
   }
 
   @override
@@ -77,9 +101,26 @@ class _AulasViewState extends State<AulasView> {
         ),
       ),
       body: SafeArea(
-        child: ListenableBuilder(
-          listenable: _controller,
-          builder: (context, _) {
+        // StreamBuilder: redesenha a tela sempre que o Firestore muda
+        child: StreamBuilder<List<Aula>>(
+          stream: _stream,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return _TelaErro(
+                onTentarNovamente: () => setState(
+                    () => _stream = _controller.aulasDoUsuario()),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(color: _verde),
+              );
+            }
+
+            final aulas = snapshot.data ?? const <Aula>[];
+
             return ListView(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
               children: [
@@ -92,17 +133,17 @@ class _AulasViewState extends State<AulasView> {
                 const Text('Grade horária semanal',
                     style: TextStyle(color: Color(0xFF64748B))),
                 const SizedBox(height: 20),
-                if (_controller.aulas.isEmpty)
+                if (aulas.isEmpty)
                   const _EstadoVazio()
                 else ...[
-                  for (final dia in _controller.diasComAula)
+                  for (final dia in AulasController.diasComAula(aulas))
                     _CartaoDia(
                       titulo: AulasController.diasDaSemana[dia]!,
-                      aulas: _controller.aulasDoDia(dia),
+                      aulas: AulasController.aulasDoDia(aulas, dia),
                       onEditar: _abrirFormulario,
                       onRemover: _confirmarRemocao,
                     ),
-                  _ResumoSemanal(controller: _controller),
+                  _ResumoSemanal(aulas: aulas),
                 ],
               ],
             );
@@ -284,11 +325,13 @@ class _CartaoAula extends StatelessWidget {
 }
 
 class _ResumoSemanal extends StatelessWidget {
-  final AulasController controller;
-  const _ResumoSemanal({required this.controller});
+  final List<Aula> aulas;
+  const _ResumoSemanal({required this.aulas});
 
   @override
   Widget build(BuildContext context) {
+    final horas = AulasController.horasPorSemana(aulas);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -303,16 +346,52 @@ class _ResumoSemanal extends StatelessWidget {
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 16),
           Row(children: [
-            _Metrica('Total de Aulas', '${controller.totalAulas}'),
-            _Metrica('Horas/Semana',
-                '${controller.horasPorSemana.toStringAsFixed(1)}h'),
+            _Metrica('Total de Aulas', '${aulas.length}'),
+            _Metrica('Horas/Semana', '${horas.toStringAsFixed(1)}h'),
           ]),
           const SizedBox(height: 16),
           Row(children: [
-            _Metrica('Disciplinas', '${controller.totalDisciplinas}'),
-            _Metrica('Dias Letivos', '${controller.diasLetivos}'),
+            _Metrica('Disciplinas',
+                '${AulasController.totalDisciplinas(aulas)}'),
+            _Metrica(
+                'Dias Letivos', '${AulasController.diasLetivos(aulas)}'),
           ]),
         ],
+      ),
+    );
+  }
+}
+
+// Tela mostrada quando a leitura do Firestore falha
+class _TelaErro extends StatelessWidget {
+  final VoidCallback onTentarNovamente;
+  const _TelaErro({required this.onTentarNovamente});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined,
+                size: 48, color: Color(0xFF64748B)),
+            const SizedBox(height: 16),
+            const Text('Não foi possível carregar as suas aulas.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Color(0xFF334155))),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onTentarNovamente,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _verde,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Tentar novamente'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -362,6 +441,7 @@ class _AulaFormDialogState extends State<_AulaFormDialog> {
   late int _dia;
   TimeOfDay? _inicio;
   TimeOfDay? _fim;
+  bool _salvando = false;
 
   bool get _editando => widget.aula != null;
 
@@ -411,7 +491,7 @@ class _AulaFormDialogState extends State<_AulaFormDialog> {
     });
   }
 
-  void _salvar() {
+  Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
     final inicio = _inicio!;
     final fim = _fim!;
@@ -422,24 +502,47 @@ class _AulaFormDialogState extends State<_AulaFormDialog> {
       return;
     }
 
-    if (_editando) {
-      widget.controller.editar(widget.aula!.copyWith(
-        disciplina: _disciplina.text.trim(),
-        diaSemana: _dia,
-        inicio: inicio,
-        fim: fim,
-        sala: _sala.text.trim(),
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    setState(() => _salvando = true);
+
+    try {
+      if (_editando) {
+        await widget.controller.editar(widget.aula!.copyWith(
+          disciplina: _disciplina.text.trim(),
+          diaSemana: _dia,
+          inicio: inicio,
+          fim: fim,
+          sala: _sala.text.trim(),
+        ));
+      } else {
+        await widget.controller.adicionar(
+          disciplina: _disciplina.text,
+          diaSemana: _dia,
+          inicio: inicio,
+          fim: fim,
+          sala: _sala.text,
+        );
+      }
+
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(_editando
+            ? 'Aula atualizada com sucesso!'
+            : 'Aula adicionada com sucesso!'),
+        backgroundColor: _verde,
+        behavior: SnackBarBehavior.floating,
       ));
-    } else {
-      widget.controller.adicionar(
-        disciplina: _disciplina.text,
-        diaSemana: _dia,
-        inicio: inicio,
-        fim: fim,
-        sala: _sala.text,
-      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      messenger.showSnackBar(SnackBar(
+        content: const Text('Não foi possível salvar a aula. Tente novamente.'),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+      ));
     }
-    Navigator.pop(context);
   }
 
   InputDecoration _decoracao(String hint) => InputDecoration(
@@ -575,18 +678,30 @@ class _AulaFormDialogState extends State<_AulaFormDialog> {
                             gradient: _gradiente,
                             borderRadius: BorderRadius.circular(16)),
                         child: ElevatedButton(
-                          onPressed: _salvar,
+                          onPressed: _salvando ? null : _salvar,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
+                            disabledBackgroundColor: Colors.transparent,
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16)),
                           ),
-                          child: Text(
-                              _editando ? 'Salvar Alterações' : 'Adicionar Aula',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700)),
+                          child: _salvando
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _editando
+                                      ? 'Salvar Alterações'
+                                      : 'Adicionar Aula',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700)),
                         ),
                       ),
                     ),

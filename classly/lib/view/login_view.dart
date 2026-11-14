@@ -1,6 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:classly/model/sessao_usuario_model.dart';
-import 'package:classly/model/repositorio_usuarios_model.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -10,6 +9,11 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
+  final _formKey = GlobalKey<FormState>();
+  bool _senhaOculta = true;
+  bool _carregando = false;
+
+  // Os controllers guardam o texto digitado só enquanto a tela está aberta
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
 
@@ -20,9 +24,54 @@ class _LoginViewState extends State<LoginView> {
     super.dispose();
   }
 
+  // Traduz o código de erro do Firebase para uma mensagem clara
+  String _mensagemErro(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-credential':
+      case 'user-not-found':
+      case 'wrong-password':
+        return 'E-mail ou senha incorretos.';
+      case 'invalid-email':
+        return 'O e-mail informado não é válido.';
+      case 'user-disabled':
+        return 'Esta conta foi desativada.';
+      case 'too-many-requests':
+        return 'Muitas tentativas. Aguarde um pouco e tente de novo.';
+      case 'network-request-failed':
+        return 'Sem conexão com a internet.';
+      default:
+        return 'Não foi possível entrar. Tente novamente.';
+    }
+  }
 
-  final _formKey = GlobalKey<FormState>();
-  bool _senhaOculta = true;
+  Future<void> _entrar() async {
+    // Só continua se e-mail e senha estiverem preenchidos corretamente
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _carregando = true);
+
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _senhaController.text,
+      );
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, 'inicio');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_mensagemErro(e))),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ocorreu um erro inesperado.')),
+      );
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
 
   static const Color _teal = Color(0xFF00B8A0);
   static const Color _tealEscuro = Color(0xFF00796B);
@@ -253,34 +302,32 @@ class _LoginViewState extends State<LoginView> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (!_formKey.currentState!.validate()) return;
-
-                          final email = _emailController.text.trim();
-                          final usuario = RepositorioUsuarios.instancia.buscarPorEmail(email);
-
-                          SessaoUsuario.instancia.iniciar(
-                            nome: usuario?.nome ?? email.split('@').first,
-                            email: email,
-                          );
-
-                          Navigator.pushNamedAndRemoveUntil(context, 'inicio', (r) => false);
-                        },
+                        onPressed: _carregando ? null : _entrar,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
+                          disabledBackgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Entrar',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
+                        child: _carregando
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Entrar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
                       ),
                     ),
 

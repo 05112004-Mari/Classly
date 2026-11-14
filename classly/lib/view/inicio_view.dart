@@ -1,3 +1,4 @@
+import 'package:classly/controller/tarefas_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../widgets/barra_navegacao.dart';
@@ -12,51 +13,61 @@ class InicioView extends StatefulWidget {
 }
 
 class _InicioViewState extends State<InicioView> {
-  List<Task> _items = [];
-  List<Task> get _tasks => _items.where((t) => !t.isExam).toList();
-  List<Task> get _exams => _items.where((t) => t.isExam).toList();
+  static const Color _teal = Color(0xFF00B8A0);
+
+  final TarefasController _controller = TarefasController();
+
+  // Stream com as tarefas e provas do usuário (tempo real)
+  late Stream<List<Task>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = _controller.tarefasDoUsuario();
+  }
+
+  void _mensagem(String texto, {bool erro = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(texto),
+        backgroundColor: erro ? Colors.red.shade700 : _teal,
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
 
   /// Marca ou desmarca como concluído
-  void _toggle(int id) {
-    setState(() {
-      _items = _items
-          .map((t) => t.id == id ? t.copyWith(completed: !t.completed) : t)
-          .toList();
-    });
+  Future<void> _toggle(Task task) async {
+    try {
+      await _controller.alternarConclusao(task);
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível atualizar o item.', erro: true);
+    }
   }
 
-  /// Salva edição
-  void _update(Task updated) {
-    setState(() {
-      _items = _items.map((t) => t.id == updated.id ? updated : t).toList();
-    });
-  }
-
-  // Adiciona item novo
-  void _add(Task newTask) {
-    setState(() {
-      _items = [
-        ..._items,
-        Task(
-          id: DateTime.now().millisecondsSinceEpoch,
-          title: newTask.title,
-          description: newTask.description,
-          priority: newTask.priority,
-          dueDate: newTask.dueDate,
-          dueTime: newTask.dueTime,
-          subject: newTask.subject,
-          isExam: newTask.isExam,
-        ),
-      ];
-    });
+  /// Cria (id vazio) ou edita (id preenchido). Lança exceção se falhar;
+  /// o formulário mostra o erro.
+  Future<void> _salvar(Task task) async {
+    final editando = task.id.isNotEmpty;
+    if (editando) {
+      await _controller.editar(task);
+    } else {
+      await _controller.adicionar(task);
+    }
+    if (!mounted) return;
+    final nome = task.isExam ? 'Prova' : 'Tarefa';
+    _mensagem(editando
+        ? '$nome atualizada com sucesso!'
+        : '$nome criada com sucesso!');
   }
 
   void _openCreateModal() {
-    showTaskFormSheet(context, onSave: _add);
+    showTaskFormSheet(context, onSave: _salvar);
   }
 
   void _openEditModal(Task task) {
-    showTaskFormSheet(context, initialData: task, onSave: _update);
+    showTaskFormSheet(context, initialData: task, onSave: _salvar);
   }
 
   /// Abre tarefas concluídas
@@ -66,15 +77,14 @@ class _InicioViewState extends State<InicioView> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final completed = _tasks.where((t) => t.completed).toList();
+        return StreamBuilder<List<Task>>(
+          stream: _stream,
+          builder: (context, snapshot) {
+            final completed =
+                TarefasController.concluidas(snapshot.data ?? const []);
             return _CompletedTasksSheet(
               tasks: completed,
-              onToggle: (id) {
-                _toggle(id);
-                setModalState(() {});
-              },
+              onToggle: _toggle,
               onTaskClick: (task) {
                 Navigator.of(sheetContext).pop();
                 _openEditModal(task);
@@ -89,24 +99,7 @@ class _InicioViewState extends State<InicioView> {
   // Abre a tela tarefas pendentes
   void _openPendingTasksScreen() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TarefasView(
-          getTasks: () => _tasks,
-          onToggle: _toggle,
-          onUpdate: _update,
-        ),
-      ),
-    );
-  }
-
-  // calculo progresso
-  ({int total, int completed, double studiedHours}) get _stats {
-    final tasks = _tasks;
-    final completedCount = tasks.where((t) => t.completed).length;
-    return (
-      total: tasks.length,
-      completed: completedCount,
-      studiedHours: completedCount * 0.75,
+      MaterialPageRoute(builder: (_) => const TarefasView()),
     );
   }
 
@@ -126,11 +119,6 @@ class _InicioViewState extends State<InicioView> {
 
   @override
   Widget build(BuildContext context) {
-    final stats = _stats;
-    // Só as 4 primeiras tarefas pendentes aparecem
-    final pendingTasks = _tasks.where((t) => !t.completed).take(4).toList();
-    final exams = _exams;
-
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
 
@@ -148,7 +136,32 @@ class _InicioViewState extends State<InicioView> {
 
       // cabeçalho
       body: SafeArea(
-        child: ListView(
+        // StreamBuilder: redesenha a tela sempre que o Firestore muda
+        child: StreamBuilder<List<Task>>(
+          stream: _stream,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return _TelaErro(
+                onTentarNovamente: () =>
+                    setState(() => _stream = _controller.tarefasDoUsuario()),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(color: _teal),
+              );
+            }
+
+            final items = snapshot.data ?? const <Task>[];
+            final stats = TarefasController.resumo(items);
+            // Só as 4 primeiras tarefas pendentes aparecem
+            final pendingTasks =
+                TarefasController.pendentes(items).take(4).toList();
+            final exams = TarefasController.provas(items);
+
+            return ListView(
           padding: const EdgeInsets.all(24),
           children: [
             Row(
@@ -240,7 +253,7 @@ class _InicioViewState extends State<InicioView> {
                   TaskCard(
                     task: task,
                     onTap: () => _openEditModal(task),
-                    onToggle: () => _toggle(task.id),
+                    onToggle: () => _toggle(task),
                   ),
               ],
             ),
@@ -256,7 +269,7 @@ class _InicioViewState extends State<InicioView> {
                   TaskCard(
                     task: exam,
                     onTap: () => _openEditModal(exam),
-                    onToggle: () => _toggle(exam.id),
+                    onToggle: () => _toggle(exam),
                   ),
               ],
             ),
@@ -271,6 +284,43 @@ class _InicioViewState extends State<InicioView> {
             ),
 
             const SizedBox(height: 80),
+          ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// Tela mostrada quando a leitura do Firestore falha
+class _TelaErro extends StatelessWidget {
+  final VoidCallback onTentarNovamente;
+  const _TelaErro({required this.onTentarNovamente});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined,
+                size: 48, color: Colors.grey.shade600),
+            const SizedBox(height: 16),
+            const Text('Não foi possível carregar os seus dados.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onTentarNovamente,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00B8A0),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Tentar novamente'),
+            ),
           ],
         ),
       ),
@@ -548,7 +598,7 @@ class ProgressoSemanal extends StatelessWidget {
 
 class _CompletedTasksSheet extends StatelessWidget {
   final List<Task> tasks;
-  final void Function(int id) onToggle;
+  final void Function(Task task) onToggle;
   final void Function(Task task) onTaskClick;
 
   const _CompletedTasksSheet({
@@ -595,7 +645,7 @@ class _CompletedTasksSheet extends StatelessWidget {
                 itemBuilder: (_, i) => TaskCard(
                   task: tasks[i],
                   onTap: () => onTaskClick(tasks[i]),
-                  onToggle: () => onToggle(tasks[i].id),
+                  onToggle: () => onToggle(tasks[i]),
                 ),
               ),
             ),
@@ -610,7 +660,7 @@ class _CompletedTasksSheet extends StatelessWidget {
 void showTaskFormSheet(
   BuildContext context, {
   Task? initialData,
-  required void Function(Task task) onSave,
+  required Future<void> Function(Task task) onSave,
 }) {
   showModalBottomSheet(
     context: context,
@@ -622,7 +672,7 @@ void showTaskFormSheet(
 
 class _TaskFormSheet extends StatefulWidget {
   final Task? initialData;
-  final void Function(Task task) onSave;
+  final Future<void> Function(Task task) onSave;
 
   const _TaskFormSheet({this.initialData, required this.onSave});
 
@@ -638,6 +688,9 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
   late final TextEditingController _dueTime;
   late Priority _priority;
   late bool _isExam;
+  bool _salvando = false;
+  String? _erroTitulo;
+  String? _erroSalvar;
 
   bool get _isEditing => widget.initialData != null;
 
@@ -684,12 +737,15 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
     }
   }
 
-  void _save() {
-    if (_title.text.trim().isEmpty) return;
+  Future<void> _save() async {
+    if (_title.text.trim().isEmpty) {
+      setState(() => _erroTitulo = 'Informe o título');
+      return;
+    }
 
     final base = widget.initialData;
     final task = Task(
-      id: base?.id ?? 0,
+      id: base?.id ?? '',
       title: _title.text.trim(),
       description: _description.text.trim(),
       priority: _priority,
@@ -700,8 +756,23 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
       isExam: _isExam,
     );
 
-    widget.onSave(task);
-    Navigator.of(context).pop();
+    final navigator = Navigator.of(context);
+    setState(() {
+      _salvando = true;
+      _erroTitulo = null;
+      _erroSalvar = null;
+    });
+
+    try {
+      await widget.onSave(task);
+      navigator.pop();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _salvando = false;
+        _erroSalvar = 'Não foi possível salvar. Tente novamente.';
+      });
+    }
   }
 
   @override
@@ -745,7 +816,8 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
 
               TextField(
                 controller: _title,
-                decoration: const InputDecoration(labelText: 'Título'),
+                decoration:
+                    InputDecoration(labelText: 'Título', errorText: _erroTitulo),
               ),
               TextField(
                 controller: _description,
@@ -796,10 +868,15 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                 ],
               ),
               const SizedBox(height: 24),
+              if (_erroSalvar != null) ...[
+                Text(_erroSalvar!,
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 13)),
+                const SizedBox(height: 8),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _save,
+                  onPressed: _salvando ? null : _save,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal.shade600,
                     foregroundColor: Colors.white,
@@ -808,7 +885,16 @@ class _TaskFormSheetState extends State<_TaskFormSheet> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: Text(_isEditing ? 'Salvar alterações' : 'Criar ${label.toLowerCase()}'),
+                  child: _salvando
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.5, color: Colors.white),
+                        )
+                      : Text(_isEditing
+                          ? 'Salvar alterações'
+                          : 'Criar ${label.toLowerCase()}'),
                 ),
               ),
             ],

@@ -57,7 +57,6 @@ class DefaultFirebaseOptions {
     projectId: 'clay-19fa5',
     storageBucket: 'clay-19fa5.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBd7R5e3Z97FONJZchVCyxrP5pl3Ju2rUM',
     appId: '1:995678340237:ios:8557bad9cad130eafb0ec4',
@@ -66,7 +65,6 @@ class DefaultFirebaseOptions {
     storageBucket: 'clay-19fa5.firebasestorage.app',
     iosBundleId: 'com.example.classly',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyBd7R5e3Z97FONJZchVCyxrP5pl3Ju2rUM',
     appId: '1:995678340237:ios:8557bad9cad130eafb0ec4',

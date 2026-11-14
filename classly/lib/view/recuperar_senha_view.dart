@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class RecuperarSenhaView extends StatefulWidget {
@@ -9,6 +10,60 @@ class RecuperarSenhaView extends StatefulWidget {
 
 class _RecuperarSenhaViewState extends State<RecuperarSenhaView> {
   final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  bool _carregando = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  String _mensagemErro(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-email':
+        return 'O e-mail informado não é válido.';
+      case 'user-not-found':
+        return 'Não existe conta cadastrada com este e-mail.';
+      case 'too-many-requests':
+        return 'Muitas tentativas. Aguarde um pouco e tente de novo.';
+      case 'network-request-failed':
+        return 'Sem conexão com a internet.';
+      default:
+        return 'Não foi possível enviar o e-mail. Tente novamente.';
+    }
+  }
+
+  Future<void> _enviar() async {
+    // Só continua se o e-mail for válido
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _carregando = true);
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: _emailController.text.trim(),
+      );
+
+      if (!mounted) return;
+      await _mostrarMensagemEnviado();
+
+      if (!mounted) return;
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_mensagemErro(e))),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ocorreu um erro inesperado.')),
+      );
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
 
   // Mensagem de "e-mail enviado"
   Future<void> _mostrarMensagemEnviado() {
@@ -229,6 +284,7 @@ class _RecuperarSenhaViewState extends State<RecuperarSenhaView> {
 
                       // Campo de e-mail (com validação)
                       TextFormField(
+                        controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         validator: (valor) {
                           final texto = (valor ?? '').trim();
@@ -305,30 +361,32 @@ class _RecuperarSenhaViewState extends State<RecuperarSenhaView> {
                           ],
                         ),
                         child: ElevatedButton(
-                          onPressed: () async {
-                            // Só continua se o e-mail for válido
-                            if (!_formKey.currentState!.validate()) return;
-
-                            await _mostrarMensagemEnviado();
-
-                            if (!mounted) return;
-                            Navigator.pop(context);
-                          },
+                          onPressed: _carregando ? null : _enviar,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
+                            disabledBackgroundColor: Colors.transparent,
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
-                          child: const Text(
-                            'Enviar',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
+                          child: _carregando
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Enviar',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
                         ),
                       ),
                     ],

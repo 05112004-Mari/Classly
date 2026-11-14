@@ -1,5 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:classly/model/repositorio_usuarios_model.dart';
 import 'package:classly/model/sessao_usuario_model.dart';
 
 class CadastroUsuarioView extends StatefulWidget {
@@ -14,12 +15,12 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
 
   final _nomeController = TextEditingController();
   final _emailController = TextEditingController();
-  final _telefoneController = TextEditingController();
   final _senhaController = TextEditingController();
   final _confirmarSenhaController = TextEditingController();
 
   bool _senhaOculta = true;
   bool _confirmarSenhaOculta = true;
+  bool _carregando = false;
 
   static const int _minCaracteresNome = 3;
   static const int _minCaracteresSenha = 6;
@@ -35,7 +36,6 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
   void dispose() {
     _nomeController.dispose();
     _emailController.dispose();
-    _telefoneController.dispose();
     _senhaController.dispose();
     _confirmarSenhaController.dispose();
     super.dispose();
@@ -58,15 +58,6 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
     return null;
   }
 
-  String? _validarTelefone(String? valor) {
-    final digitos = (valor ?? '').replaceAll(RegExp(r'\D'), '');
-    if (digitos.isEmpty) return 'Informe o seu telefone.';
-    if (digitos.length < 10 || digitos.length > 11) {
-      return 'Informe um telefone válido com DDD.';
-    }
-    return null;
-  }
-
   String? _validarSenha(String? valor) {
     final senha = valor ?? '';
     if (senha.isEmpty) return 'Informe uma senha.';
@@ -86,7 +77,25 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
   }
 
 
-  void _cadastrar() {
+  // Traduz o código de erro do Firebase para uma mensagem clara
+  String _mensagemErro(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'Este e-mail já está cadastrado.';
+      case 'invalid-email':
+        return 'O e-mail informado não é válido.';
+      case 'weak-password':
+        return 'Senha fraca. Use pelo menos $_minCaracteresSenha caracteres.';
+      case 'network-request-failed':
+        return 'Sem conexão com a internet.';
+      case 'operation-not-allowed':
+        return 'Cadastro por e-mail e senha não está habilitado no Firebase.';
+      default:
+        return 'Não foi possível criar a conta. Tente novamente.';
+    }
+  }
+
+  Future<void> _cadastrar() async {
     FocusScope.of(context).unfocus();
 
     if (!_formKey.currentState!.validate()) {
@@ -94,26 +103,58 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
       return;
     }
 
-    final repo = RepositorioUsuarios.instancia;
+    final nome = _nomeController.text.trim();
     final email = _emailController.text.trim();
 
-    if (repo.emailExiste(email)) {
-      _mostrarMensagem('Este e-mail já está cadastrado.', erro: true);
-      return;
+    setState(() => _carregando = true);
+
+    try {
+      // 1) Cria a conta no Firebase Authentication (e-mail e senha)
+      final credencial =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: _senhaController.text,
+      );
+      final usuario = credencial.user!;
+
+      try {
+        await usuario.updateDisplayName(nome);
+
+        // 2) Salva os dados extras na coleção "usuarios" do Firestore.
+        //    O id do documento é o uid do usuário. A senha NÃO é salva aqui.
+        await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(usuario.uid)
+            .set({
+          'uid': usuario.uid,
+          'nome': nome,
+          'email': email,
+          'criadoEm': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        // Se não conseguiu salvar o perfil, desfaz a conta para não
+        // ficar um usuário sem dados.
+        await usuario.delete();
+        rethrow;
+      }
+
+      SessaoUsuario.instancia.iniciar(nome: nome, email: email);
+
+      if (!mounted) return;
+      _mostrarMensagem('Cadastro realizado com sucesso!');
+      Navigator.pushNamedAndRemoveUntil(context, 'inicio', (r) => false);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      _mostrarMensagem(_mensagemErro(e), erro: true);
+    } catch (_) {
+      if (!mounted) return;
+      _mostrarMensagem(
+        'Não foi possível concluir o cadastro. Tente novamente.',
+        erro: true,
+      );
+    } finally {
+      if (mounted) setState(() => _carregando = false);
     }
-
-    final nome = _nomeController.text.trim();
-    repo.cadastrar(UsuarioCadastrado(
-      nome: nome,
-      email: email,
-      telefone: _telefoneController.text.trim(),
-      senha: _senhaController.text,
-    ));
-
-    SessaoUsuario.instancia.iniciar(nome: nome, email: email);
-
-    _mostrarMensagem('Cadastro realizado com sucesso!');
-    Navigator.pushNamedAndRemoveUntil(context, 'inicio', (r) => false);
   }
 
   void _mostrarMensagem(String texto, {bool erro = false}) {
@@ -287,19 +328,6 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
                           ),
                           const SizedBox(height: 20),
 
-                          // Telefone
-                          TextFormField(
-                            controller: _telefoneController,
-                            keyboardType: TextInputType.phone,
-                            textInputAction: TextInputAction.next,
-                            validator: _validarTelefone,
-                            decoration: _decoracaoCampo(
-                              hint: 'Telefone com DDD',
-                              icone: Icons.phone_in_talk,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
                           // Senha
                           TextFormField(
                             controller: _senhaController,
@@ -324,7 +352,9 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
                             obscureText: _confirmarSenhaOculta,
                             textInputAction: TextInputAction.done,
                             validator: _validarConfirmarSenha,
-                            onFieldSubmitted: (_) => _cadastrar(),
+                            onFieldSubmitted: (_) {
+                              if (!_carregando) _cadastrar();
+                            },
                             decoration: _decoracaoCampo(
                               hint: 'Confirmar senha',
                               icone: Icons.lock_outline,
@@ -359,22 +389,32 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: _cadastrar,
+                        onPressed: _carregando ? null : _cadastrar,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
+                          disabledBackgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text(
-                          'Cadastrar',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
+                        child: _carregando
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Cadastrar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
                       ),
                     ),
                   ],

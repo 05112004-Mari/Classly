@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:classly/model/aula_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-class AulasController extends ChangeNotifier {
+class AulasController {
   static const Map<int, String> diasDaSemana = {
     DateTime.monday: 'Segunda-feira',
     DateTime.tuesday: 'Terça-feira',
@@ -11,59 +13,74 @@ class AulasController extends ChangeNotifier {
     DateTime.saturday: 'Sábado',
   };
 
-  final List<Aula> _aulas = [];
+  // Coleção "aulas" do Firestore
+  final CollectionReference<Map<String, dynamic>> _colecao =
+      FirebaseFirestore.instance.collection('aulas');
 
-  List<Aula> get aulas => List.unmodifiable(_aulas);
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+
+  // ---- Leitura em tempo real (usada pelo StreamBuilder da view) ----
+
+  /// Escuta só as aulas do usuário logado. Sempre que o Firestore muda
+  /// (inclusão, edição ou remoção), a lista é emitida de novo.
+  Stream<List<Aula>> aulasDoUsuario() {
+    return _colecao
+        .where('uid', isEqualTo: _uid ?? '')
+        .snapshots()
+        .map((snap) => snap.docs.map(Aula.fromDoc).toList());
+  }
+
+  // ---- Consultas sobre a lista recebida ----
 
   /// Dias que têm pelo menos uma aula, em ordem.
-  List<int> get diasComAula {
-    final dias = _aulas.map((a) => a.diaSemana).toSet().toList()..sort();
-    return dias;
+  static List<int> diasComAula(List<Aula> aulas) {
+    return aulas.map((a) => a.diaSemana).toSet().toList()..sort();
   }
 
   /// Aulas de um dia, ordenadas pelo horário de início.
-  List<Aula> aulasDoDia(int dia) {
-    final lista = _aulas.where((a) => a.diaSemana == dia).toList()
+  static List<Aula> aulasDoDia(List<Aula> aulas, int dia) {
+    return aulas.where((a) => a.diaSemana == dia).toList()
       ..sort((a, b) => a.inicioEmMinutos.compareTo(b.inicioEmMinutos));
-    return lista;
   }
 
   // ---- Resumo semanal ----
-  int get totalAulas => _aulas.length;
-  int get totalDisciplinas =>
-      _aulas.map((a) => a.disciplina.trim().toLowerCase()).toSet().length;
-  int get diasLetivos => diasComAula.length;
-  double get horasPorSemana =>
-      _aulas.fold(0.0, (soma, a) => soma + a.duracaoEmHoras);
+  static int totalDisciplinas(List<Aula> aulas) =>
+      aulas.map((a) => a.disciplina.trim().toLowerCase()).toSet().length;
 
-  // ---- CRUD ----
-  void adicionar({
+  static int diasLetivos(List<Aula> aulas) => diasComAula(aulas).length;
+
+  static double horasPorSemana(List<Aula> aulas) =>
+      aulas.fold(0.0, (soma, a) => soma + a.duracaoEmHoras);
+
+  // ---- CRUD no Firestore ----
+  // Os métodos lançam exceção se algo falhar; a view mostra a mensagem.
+
+  Future<void> adicionar({
     required String disciplina,
     required int diaSemana,
     required TimeOfDay inicio,
     required TimeOfDay fim,
     required String sala,
-  }) {
-    _aulas.add(Aula(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+  }) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('Usuário não autenticado.');
+
+    final aula = Aula(
+      id: '', // o Firestore gera o id do documento
       disciplina: disciplina.trim(),
       diaSemana: diaSemana,
       inicio: inicio,
       fim: fim,
       sala: sala.trim(),
-    ));
-    notifyListeners();
+    );
+    await _colecao.add(aula.toMap(uid));
   }
 
-  void editar(Aula atualizada) {
-    final i = _aulas.indexWhere((a) => a.id == atualizada.id);
-    if (i == -1) return;
-    _aulas[i] = atualizada;
-    notifyListeners();
+  Future<void> editar(Aula atualizada) async {
+    await _colecao.doc(atualizada.id).update(atualizada.toUpdateMap());
   }
 
-  void remover(String id) {
-    _aulas.removeWhere((a) => a.id == id);
-    notifyListeners();
+  Future<void> remover(String id) async {
+    await _colecao.doc(id).delete();
   }
 }

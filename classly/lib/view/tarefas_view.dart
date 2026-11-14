@@ -1,18 +1,10 @@
+import 'package:classly/controller/tarefas_controller.dart';
 import 'package:flutter/material.dart';
 import 'task.dart';
 import 'inicio_view.dart';
 
 class TarefasView extends StatefulWidget {
-  final List<Task> Function() getTasks;
-  final void Function(int id) onToggle;
-  final void Function(Task task) onUpdate;
-
-  const TarefasView({
-    super.key,
-    required this.getTasks,
-    required this.onToggle,
-    required this.onUpdate,
-  });
+  const TarefasView({super.key});
 
   @override
   State<TarefasView> createState() => _TarefasViewState();
@@ -23,26 +15,44 @@ class _TarefasViewState extends State<TarefasView> {
   static const Color _borda = Color(0xFFB2DFDB);
   static const Color _textoEscuro = Color(0xFF0F172A);
 
-  List<Task> get _pending {
-    final list = widget.getTasks().where((t) => !t.completed).toList();
-    list.sort((a, b) => b.priority.index.compareTo(a.priority.index));
-    return list;
+  final TarefasController _controller = TarefasController();
+  late Stream<List<Task>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = _controller.tarefasDoUsuario();
+  }
+
+  void _mensagem(String texto, {bool erro = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(texto),
+        backgroundColor: erro ? Colors.red.shade700 : _teal,
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 
   // Conclui a tarefa
-  void _toggle(int id) {
-    widget.onToggle(id);
-    setState(() {});
+  Future<void> _toggle(Task task) async {
+    try {
+      await _controller.alternarConclusao(task);
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível atualizar a tarefa.', erro: true);
+    }
   }
 
-  // atualizar
+  // Atualizar
   void _edit(Task task) {
     showTaskFormSheet(
       context,
       initialData: task,
-      onSave: (updated) {
-        widget.onUpdate(updated);
-        setState(() {});
+      onSave: (updated) async {
+        await _controller.editar(updated);
+        if (!mounted) return;
+        _mensagem('Tarefa atualizada com sucesso!');
       },
     );
   }
@@ -74,36 +84,64 @@ class _TarefasViewState extends State<TarefasView> {
   }
 
   Widget _vazio() {
-  return SizedBox(
-    width: double.infinity,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 32),
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Icons.task_alt, size: 64, color: Colors.teal.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              'Tudo em dia!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _textoEscuro,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Você não tem tarefas pendentes.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Falha ao ler o Firestore
+  Widget _erro() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.task_alt, size: 64, color: Colors.teal.shade300),
-          const SizedBox(height: 16),
+          Icon(Icons.cloud_off_outlined, size: 48, color: Colors.grey.shade600),
+          const SizedBox(height: 12),
           const Text(
-            'Tudo em dia!',
+            'Não foi possível carregar as suas tarefas.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: _textoEscuro,
-            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Você não tem tarefas pendentes.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey.shade600),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: () =>
+                setState(() => _stream = _controller.tarefasDoUsuario()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _teal,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Tentar novamente'),
           ),
         ],
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _lista(List<Task> pending) {
     return Column(
@@ -125,7 +163,7 @@ class _TarefasViewState extends State<TarefasView> {
           TaskCard(
             task: task,
             onTap: () => _edit(task),
-            onToggle: () => _toggle(task.id),
+            onToggle: () => _toggle(task),
           ),
           const SizedBox(height: 12),
         ],
@@ -133,10 +171,23 @@ class _TarefasViewState extends State<TarefasView> {
     );
   }
 
+  Widget _conteudo(AsyncSnapshot<List<Task>> snapshot) {
+    if (snapshot.hasError) return _erro();
+
+    if (snapshot.connectionState == ConnectionState.waiting &&
+        !snapshot.hasData) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator(color: _teal)),
+      );
+    }
+
+    final pending = TarefasController.pendentes(snapshot.data ?? const []);
+    return pending.isEmpty ? _vazio() : _lista(pending);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pending = _pending;
-
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -173,7 +224,11 @@ class _TarefasViewState extends State<TarefasView> {
                   children: [
                     _cabecalho(),
                     const SizedBox(height: 16),
-                    if (pending.isEmpty) _vazio() else _lista(pending),
+                    // StreamBuilder: atualiza sozinho quando o Firestore muda
+                    StreamBuilder<List<Task>>(
+                      stream: _stream,
+                      builder: (context, snapshot) => _conteudo(snapshot),
+                    ),
                   ],
                 ),
               ),
