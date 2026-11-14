@@ -1,7 +1,7 @@
+import 'package:classly/model/sessao_usuario_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:classly/model/sessao_usuario_model.dart';
 
 class CadastroUsuarioView extends StatefulWidget {
   const CadastroUsuarioView({super.key});
@@ -15,6 +15,7 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
 
   final _nomeController = TextEditingController();
   final _emailController = TextEditingController();
+  final _telefoneController = TextEditingController();
   final _senhaController = TextEditingController();
   final _confirmarSenhaController = TextEditingController();
 
@@ -36,6 +37,7 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
   void dispose() {
     _nomeController.dispose();
     _emailController.dispose();
+    _telefoneController.dispose();
     _senhaController.dispose();
     _confirmarSenhaController.dispose();
     super.dispose();
@@ -55,6 +57,15 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
     final email = (valor ?? '').trim();
     if (email.isEmpty) return 'Informe o seu e-mail.';
     if (!_regexEmail.hasMatch(email)) return 'Informe um e-mail válido.';
+    return null;
+  }
+
+  String? _validarTelefone(String? valor) {
+    final digitos = (valor ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digitos.isEmpty) return 'Informe o seu telefone.';
+    if (digitos.length < 10 || digitos.length > 11) {
+      return 'Informe um telefone válido com DDD.';
+    }
     return null;
   }
 
@@ -78,23 +89,24 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
 
 
   // Traduz o código de erro do Firebase para uma mensagem clara
-  String _mensagemErro(FirebaseAuthException e) {
-    switch (e.code) {
+  String _textoDoErro(String codigo) {
+    switch (codigo) {
       case 'email-already-in-use':
         return 'Este e-mail já está cadastrado.';
       case 'invalid-email':
-        return 'O e-mail informado não é válido.';
+        return 'E-mail inválido.';
       case 'weak-password':
-        return 'Senha fraca. Use pelo menos $_minCaracteresSenha caracteres.';
-      case 'network-request-failed':
-        return 'Sem conexão com a internet.';
+        return 'Senha muito fraca. Use pelo menos 6 caracteres.';
       case 'operation-not-allowed':
-        return 'Cadastro por e-mail e senha não está habilitado no Firebase.';
+        return 'Cadastro por e-mail não está habilitado.';
+      case 'network-request-failed':
+        return 'Sem conexão. Verifique sua internet.';
       default:
-        return 'Não foi possível criar a conta. Tente novamente.';
+        return 'Não foi possível concluir o cadastro. Tente novamente.';
     }
   }
 
+  // Cadastro: Firebase Authentication + dados extras na coleção "usuarios"
   Future<void> _cadastrar() async {
     FocusScope.of(context).unfocus();
 
@@ -104,37 +116,37 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
     }
 
     final nome = _nomeController.text.trim();
+    final telefone = _telefoneController.text.trim();
     final email = _emailController.text.trim();
 
     setState(() => _carregando = true);
 
     try {
-      // 1) Cria a conta no Firebase Authentication (e-mail e senha)
-      final credencial =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      // 1) Cria a conta no Authentication
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: _senhaController.text,
       );
-      final usuario = credencial.user!;
+      final usuario = cred.user!;
+      await usuario.updateDisplayName(nome);
 
+      // 2) Guarda os campos extras no Firestore (coleção "usuarios")
       try {
-        await usuario.updateDisplayName(nome);
-
-        // 2) Salva os dados extras na coleção "usuarios" do Firestore.
-        //    O id do documento é o uid do usuário. A senha NÃO é salva aqui.
         await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(usuario.uid)
             .set({
           'uid': usuario.uid,
           'nome': nome,
+          'telefone': telefone,
           'email': email,
           'criadoEm': FieldValue.serverTimestamp(),
         });
       } catch (_) {
-        // Se não conseguiu salvar o perfil, desfaz a conta para não
-        // ficar um usuário sem dados.
-        await usuario.delete();
+        // Se o Firestore falhar, desfaz a conta para não ficar pela metade
+        try {
+          await usuario.delete();
+        } catch (_) {}
         rethrow;
       }
 
@@ -144,14 +156,13 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
       _mostrarMensagem('Cadastro realizado com sucesso!');
       Navigator.pushNamedAndRemoveUntil(context, 'inicio', (r) => false);
     } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      _mostrarMensagem(_mensagemErro(e), erro: true);
+      if (mounted) _mostrarMensagem(_textoDoErro(e.code), erro: true);
     } catch (_) {
-      if (!mounted) return;
-      _mostrarMensagem(
-        'Não foi possível concluir o cadastro. Tente novamente.',
-        erro: true,
-      );
+      if (mounted) {
+        _mostrarMensagem(
+            'Não foi possível concluir o cadastro. Tente novamente.',
+            erro: true);
+      }
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -324,6 +335,19 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView> {
                             decoration: _decoracaoCampo(
                               hint: 'seu@email.com',
                               icone: Icons.mail_outline,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Telefone
+                          TextFormField(
+                            controller: _telefoneController,
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                            validator: _validarTelefone,
+                            decoration: _decoracaoCampo(
+                              hint: 'Telefone com DDD',
+                              icone: Icons.phone_in_talk,
                             ),
                           ),
                           const SizedBox(height: 20),

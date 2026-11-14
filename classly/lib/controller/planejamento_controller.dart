@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:classly/model/meta_model.dart';
 import 'package:classly/model/plano_estudo_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class PlanejamentoController extends ChangeNotifier {
+class PlanejamentoController {
   static const Map<int, String> diasDaSemana = {
     DateTime.monday: 'Segunda',
     DateTime.tuesday: 'Terça',
@@ -19,101 +20,129 @@ class PlanejamentoController extends ChangeNotifier {
     3: 'Baixa',
   };
 
-  final List<PlanoEstudo> _planos = [];
-  final List<Meta> _metas = [];
+  // Coleções "planos" e "metas" do Firestore
+  final CollectionReference<Map<String, dynamic>> _planos =
+      FirebaseFirestore.instance.collection('planos');
+  final CollectionReference<Map<String, dynamic>> _metas =
+      FirebaseFirestore.instance.collection('metas');
 
-  String _novoId() => DateTime.now().microsecondsSinceEpoch.toString();
+  static const Duration _limite = Duration(seconds: 10);
 
-  // ---------------- Planos de estudo ----------------
-  List<PlanoEstudo> get planos {
-    final lista = [..._planos]..sort((a, b) {
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+
+  // ---------------- Leitura em tempo real ----------------
+
+  Stream<List<PlanoEstudo>> planosDoUsuario() {
+    return _planos
+        .where('uid', isEqualTo: _uid ?? '')
+        .snapshots()
+        .map((snap) => snap.docs.map(PlanoEstudo.fromDoc).toList());
+  }
+
+  Stream<List<Meta>> metasDoUsuario() {
+    return _metas
+        .where('uid', isEqualTo: _uid ?? '')
+        .snapshots()
+        .map((snap) => snap.docs.map(Meta.fromDoc).toList());
+  }
+
+  // ---------------- Ordenação ----------------
+
+  /// Por dia da semana e depois por horário.
+  static List<PlanoEstudo> ordenarPlanos(List<PlanoEstudo> planos) {
+    return [...planos]..sort((a, b) {
         final porDia = a.diaSemana.compareTo(b.diaSemana);
         return porDia != 0 ? porDia : a.horario.compareTo(b.horario);
       });
-    return lista;
   }
 
-  void adicionarPlano({
+  /// Pendentes primeiro, depois por prioridade (alta, média, baixa).
+  static List<Meta> ordenarMetas(List<Meta> metas) {
+    return [...metas]..sort((a, b) {
+        if (a.concluida != b.concluida) return a.concluida ? 1 : -1;
+        return a.prioridade.compareTo(b.prioridade);
+      });
+  }
+
+  // ---------------- Planos de estudo ----------------
+
+  Future<void> adicionarPlano({
     required String disciplina,
     required String topico,
     required int diaSemana,
     String horario = '',
     String duracao = '',
-  }) {
-    _planos.add(PlanoEstudo(
-      id: _novoId(),
+  }) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('Usuário não autenticado.');
+
+    final plano = PlanoEstudo(
+      id: '',
       disciplina: disciplina.trim(),
       topico: topico.trim(),
       diaSemana: diaSemana,
       horario: horario.trim(),
       duracao: duracao.trim(),
-    ));
-    notifyListeners();
+    );
+    await _planos.add(plano.toMap(uid)).timeout(_limite);
   }
 
-  void editarPlano(PlanoEstudo atualizado) {
-    final i = _planos.indexWhere((p) => p.id == atualizado.id);
-    if (i == -1) return;
-    _planos[i] = atualizado;
-    notifyListeners();
+  Future<void> editarPlano(PlanoEstudo atualizado) async {
+    await _planos
+        .doc(atualizado.id)
+        .update(atualizado.toUpdateMap())
+        .timeout(_limite);
   }
 
-  void removerPlano(String id) {
-    _planos.removeWhere((p) => p.id == id);
-    notifyListeners();
+  Future<void> removerPlano(String id) async {
+    await _planos.doc(id).delete().timeout(_limite);
   }
 
   // ---------------- Metas ----------------
-  /// Pendentes primeiro, depois por prioridade (alta, média, baixa).
-  List<Meta> get metas {
-    final lista = [..._metas]..sort((a, b) {
-        if (a.concluida != b.concluida) return a.concluida ? 1 : -1;
-        return a.prioridade.compareTo(b.prioridade);
-      });
-    return lista;
-  }
 
-  void adicionarMeta({
+  Future<void> adicionarMeta({
     required String titulo,
     String descricao = '',
     required String categoria,
     String prazo = '',
     required int prioridade,
-  }) {
-    _metas.add(Meta(
-      id: _novoId(),
+  }) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('Usuário não autenticado.');
+
+    final meta = Meta(
+      id: '',
       titulo: titulo.trim(),
       descricao: descricao.trim(),
       categoria: categoria.trim().isEmpty ? 'Geral' : categoria.trim(),
       prazo: prazo.trim(),
       prioridade: prioridade,
-    ));
-    notifyListeners();
+    );
+    await _metas.add(meta.toMap(uid)).timeout(_limite);
   }
 
-  void editarMeta(Meta atualizada) {
-    final i = _metas.indexWhere((m) => m.id == atualizada.id);
-    if (i == -1) return;
-    _metas[i] = atualizada;
-    notifyListeners();
+  Future<void> editarMeta(Meta atualizada) async {
+    await _metas
+        .doc(atualizada.id)
+        .update(atualizada.toUpdateMap())
+        .timeout(_limite);
   }
 
-  void alternarConclusaoMeta(String id) {
-    final i = _metas.indexWhere((m) => m.id == id);
-    if (i == -1) return;
-    _metas[i] = _metas[i].copyWith(concluida: !_metas[i].concluida);
-    notifyListeners();
+  Future<void> alternarConclusaoMeta(Meta meta) async {
+    await _metas
+        .doc(meta.id)
+        .update({'concluida': !meta.concluida}).timeout(_limite);
   }
 
-  void removerMeta(String id) {
-    _metas.removeWhere((m) => m.id == id);
-    notifyListeners();
+  Future<void> removerMeta(String id) async {
+    await _metas.doc(id).delete().timeout(_limite);
   }
 
   // ---------------- Calendário ----------------
+
   /// Lê o texto do prazo: aceita data (dd/mm/aaaa) ou nome de um dia da
   /// semana ("Até Sexta" = próxima sexta). Outros textos não marcam o calendário.
-  DateTime? _dataDoPrazo(String prazo, DateTime hoje) {
+  static DateTime? _dataDoPrazo(String prazo, DateTime hoje) {
     final texto = prazo.toLowerCase();
 
     final data = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(texto);
@@ -147,11 +176,11 @@ class PlanejamentoController extends ChangeNotifier {
 
   /// Para cada meta pendente com prazo reconhecido, marca a data com a
   /// maior prioridade (menor número).
-  Map<DateTime, int> get prioridadePorData {
+  static Map<DateTime, int> prioridadePorData(List<Meta> metas) {
     final agora = DateTime.now();
     final hoje = DateTime(agora.year, agora.month, agora.day);
     final mapa = <DateTime, int>{};
-    for (final m in _metas.where((m) => !m.concluida)) {
+    for (final m in metas.where((m) => !m.concluida)) {
       final data = _dataDoPrazo(m.prazo, hoje);
       if (data == null) continue;
       final atual = mapa[data];

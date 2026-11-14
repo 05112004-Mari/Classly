@@ -79,10 +79,27 @@ class PlanejarView extends StatefulWidget {
 class _PlanejarViewState extends State<PlanejarView> {
   final PlanejamentoController _controller = PlanejamentoController();
 
+  // Streams com os planos e as metas do usuário (tempo real)
+  late Stream<List<PlanoEstudo>> _streamPlanos;
+  late Stream<List<Meta>> _streamMetas;
+
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _streamPlanos = _controller.planosDoUsuario();
+    _streamMetas = _controller.metasDoUsuario();
+  }
+
+  void _mensagem(String texto, {bool erro = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(texto),
+          backgroundColor: erro ? Colors.red.shade700 : _verdeEscuro,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   Future<void> _abrirPlano([PlanoEstudo? plano]) => showDialog(
@@ -96,18 +113,49 @@ class _PlanejarViewState extends State<PlanejarView> {
       );
 
   Future<void> _removerPlano(PlanoEstudo p) async {
-    if (await _confirmar(context, 'Remover plano',
+    if (!await _confirmar(context, 'Remover plano',
         'Deseja remover o plano de "${p.disciplina}"?')) {
-      _controller.removerPlano(p.id);
+      return;
+    }
+    try {
+      await _controller.removerPlano(p.id);
+      if (!mounted) return;
+      _mensagem('Plano removido.');
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível remover o plano.', erro: true);
     }
   }
 
   Future<void> _removerMeta(Meta m) async {
-    if (await _confirmar(
+    if (!await _confirmar(
         context, 'Remover meta', 'Deseja remover "${m.titulo}"?')) {
-      _controller.removerMeta(m.id);
+      return;
+    }
+    try {
+      await _controller.removerMeta(m.id);
+      if (!mounted) return;
+      _mensagem('Meta removida.');
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível remover a meta.', erro: true);
     }
   }
+
+  Future<void> _alternarMeta(Meta m) async {
+    try {
+      await _controller.alternarConclusaoMeta(m);
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível atualizar a meta.', erro: true);
+    }
+  }
+
+  void _recarregarMetas() =>
+      setState(() => _streamMetas = _controller.metasDoUsuario());
+
+  void _recarregarPlanos() =>
+      setState(() => _streamPlanos = _controller.planosDoUsuario());
 
   @override
   Widget build(BuildContext context) {
@@ -115,74 +163,137 @@ class _PlanejarViewState extends State<PlanejarView> {
       backgroundColor: Colors.white,
       bottomNavigationBar: const BarraNavegacao(currentIndex: 2),
       body: SafeArea(
-        child: ListenableBuilder(
-          listenable: _controller,
-          builder: (context, _) {
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
-              children: [
-                const Text('Planejamento',
-                    style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A))),
-                const SizedBox(height: 4),
-                const Text('Organize seus estudos e metas',
-                    style: TextStyle(color: Color(0xFF64748B))),
-                const SizedBox(height: 20),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
+          children: [
+            const Text('Planejamento',
+                style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A))),
+            const SizedBox(height: 4),
+            const Text('Organize seus estudos e metas',
+                style: TextStyle(color: Color(0xFF64748B))),
+            const SizedBox(height: 20),
 
-                // Calendário
-                _CartaoSecao(
-                  icone: Icons.calendar_today_outlined,
-                  titulo: 'Calendário',
-                  child: _Calendario(prioridades: _controller.prioridadePorData),
+            // Calendário (usa as metas)
+            _CartaoSecao(
+              icone: Icons.calendar_today_outlined,
+              titulo: 'Calendário',
+              child: _SecaoStream<Meta>(
+                stream: _streamMetas,
+                onTentarNovamente: _recarregarMetas,
+                builder: (metas) => _Calendario(
+                    prioridades: PlanejamentoController.prioridadePorData(metas)),
+              ),
+            ),
+
+            // Plano de estudos
+            _CartaoSecao(
+              icone: Icons.track_changes,
+              titulo: 'Plano de Estudos Semanal',
+              child: _SecaoStream<PlanoEstudo>(
+                stream: _streamPlanos,
+                onTentarNovamente: _recarregarPlanos,
+                builder: (planos) => Column(
+                  children: [
+                    for (final p in PlanejamentoController.ordenarPlanos(planos))
+                      _CartaoPlano(
+                        plano: p,
+                        onEditar: () => _abrirPlano(p),
+                        onRemover: () => _removerPlano(p),
+                      ),
+                    _BotaoTracejado(
+                        texto: 'Adicionar Plano de Estudo',
+                        onTap: () => _abrirPlano()),
+                  ],
                 ),
+              ),
+            ),
 
-                // Plano de estudos
-                _CartaoSecao(
-                  icone: Icons.track_changes,
-                  titulo: 'Plano de Estudos Semanal',
-                  child: Column(
-                    children: [
-                      for (final p in _controller.planos)
-                        _CartaoPlano(
-                          plano: p,
-                          onEditar: () => _abrirPlano(p),
-                          onRemover: () => _removerPlano(p),
-                        ),
-                      _BotaoTracejado(
-                          texto: 'Adicionar Plano de Estudo',
-                          onTap: () => _abrirPlano()),
-                    ],
-                  ),
+            const _Legenda(),
+
+            // Metas
+            _CartaoSecao(
+              icone: Icons.track_changes,
+              titulo: 'Metas da Semana',
+              child: _SecaoStream<Meta>(
+                stream: _streamMetas,
+                onTentarNovamente: _recarregarMetas,
+                builder: (metas) => Column(
+                  children: [
+                    for (final m in PlanejamentoController.ordenarMetas(metas))
+                      _CartaoMeta(
+                        meta: m,
+                        onEditar: () => _abrirMeta(m),
+                        onRemover: () => _removerMeta(m),
+                        onAlternar: () => _alternarMeta(m),
+                      ),
+                    _BotaoTracejado(
+                        texto: 'Adicionar Meta', onTap: () => _abrirMeta()),
+                  ],
                 ),
-
-                const _Legenda(),
-
-                // Metas
-                _CartaoSecao(
-                  icone: Icons.track_changes,
-                  titulo: 'Metas da Semana',
-                  child: Column(
-                    children: [
-                      for (final m in _controller.metas)
-                        _CartaoMeta(
-                          meta: m,
-                          onEditar: () => _abrirMeta(m),
-                          onRemover: () => _removerMeta(m),
-                          onAlternar: () =>
-                              _controller.alternarConclusaoMeta(m.id),
-                        ),
-                      _BotaoTracejado(
-                          texto: 'Adicionar Meta', onTap: () => _abrirMeta()),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+
+// Lê um stream do Firestore e mostra carregando / erro / conteúdo
+class _SecaoStream<T> extends StatelessWidget {
+  final Stream<List<T>> stream;
+  final VoidCallback onTentarNovamente;
+  final Widget Function(List<T> dados) builder;
+
+  const _SecaoStream({
+    required this.stream,
+    required this.onTentarNovamente,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<T>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              children: [
+                const Icon(Icons.cloud_off_outlined,
+                    size: 40, color: Color(0xFF64748B)),
+                const SizedBox(height: 8),
+                const Text('Não foi possível carregar os dados.',
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: onTentarNovamente,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _verde,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Tentar novamente'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator(color: _verde)),
+          );
+        }
+
+        return builder(snapshot.data ?? <T>[]);
+      },
     );
   }
 }
@@ -705,6 +816,8 @@ class _DialogoForm extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final List<Widget> campos;
   final VoidCallback onSalvar;
+  final bool salvando;
+  final String? erro;
 
   const _DialogoForm({
     required this.icone,
@@ -713,6 +826,8 @@ class _DialogoForm extends StatelessWidget {
     required this.formKey,
     required this.campos,
     required this.onSalvar,
+    this.salvando = false,
+    this.erro,
   });
 
   @override
@@ -764,6 +879,12 @@ class _DialogoForm extends StatelessWidget {
                   children: [
                     ...campos,
                     const SizedBox(height: 24),
+                    if (erro != null) ...[
+                      Text(erro!,
+                          style: TextStyle(
+                              color: Colors.red.shade700, fontSize: 13)),
+                      const SizedBox(height: 8),
+                    ],
                     Row(
                       children: [
                         Expanded(
@@ -792,17 +913,27 @@ class _DialogoForm extends StatelessWidget {
                                   gradient: _gradiente,
                                   borderRadius: BorderRadius.circular(16)),
                               child: ElevatedButton(
-                                onPressed: onSalvar,
+                                onPressed: salvando ? null : onSalvar,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.transparent,
+                                  disabledBackgroundColor: Colors.transparent,
                                   shadowColor: Colors.transparent,
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16)),
                                 ),
-                                child: Text(textoBotao,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700)),
+                                child: salvando
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Text(textoBotao,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700)),
                               ),
                             ),
                           ),
@@ -839,6 +970,8 @@ class _PlanoFormDialogState extends State<_PlanoFormDialog> {
   late final TextEditingController _horario;
   late final TextEditingController _duracao;
   late int _dia;
+  bool _salvando = false;
+  String? _erro;
 
   bool get _editando => widget.plano != null;
 
@@ -862,27 +995,50 @@ class _PlanoFormDialogState extends State<_PlanoFormDialog> {
     super.dispose();
   }
 
-  void _salvar() {
+  Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_editando) {
-      widget.controller.editarPlano(widget.plano!.copyWith(
-        disciplina: _disciplina.text.trim(),
-        topico: _topico.text.trim(),
-        diaSemana: _dia,
-        horario: _horario.text.trim(),
-        duracao: _duracao.text.trim(),
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _salvando = true;
+      _erro = null;
+    });
+
+    try {
+      if (_editando) {
+        await widget.controller.editarPlano(widget.plano!.copyWith(
+          disciplina: _disciplina.text.trim(),
+          topico: _topico.text.trim(),
+          diaSemana: _dia,
+          horario: _horario.text.trim(),
+          duracao: _duracao.text.trim(),
+        ));
+      } else {
+        await widget.controller.adicionarPlano(
+          disciplina: _disciplina.text,
+          topico: _topico.text,
+          diaSemana: _dia,
+          horario: _horario.text,
+          duracao: _duracao.text,
+        );
+      }
+
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(_editando
+            ? 'Plano atualizado com sucesso!'
+            : 'Plano adicionado com sucesso!'),
+        backgroundColor: _verdeEscuro,
+        behavior: SnackBarBehavior.floating,
       ));
-    } else {
-      widget.controller.adicionarPlano(
-        disciplina: _disciplina.text,
-        topico: _topico.text,
-        diaSemana: _dia,
-        horario: _horario.text,
-        duracao: _duracao.text,
-      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _salvando = false;
+        _erro = 'Não foi possível salvar. Tente novamente.';
+      });
     }
-    Navigator.pop(context);
   }
 
   @override
@@ -893,6 +1049,8 @@ class _PlanoFormDialogState extends State<_PlanoFormDialog> {
       textoBotao: _editando ? 'Salvar' : 'Adicionar',
       formKey: _formKey,
       onSalvar: _salvar,
+      salvando: _salvando,
+      erro: _erro,
       campos: [
         _rotulo('Dia da Semana'),
         DropdownButtonFormField<int>(
@@ -952,6 +1110,8 @@ class _MetaFormDialogState extends State<_MetaFormDialog> {
   late final TextEditingController _prazo;
   late final TextEditingController _categoria;
   late int _prioridade;
+  bool _salvando = false;
+  String? _erro;
 
   bool get _editando => widget.meta != null;
 
@@ -975,29 +1135,52 @@ class _MetaFormDialogState extends State<_MetaFormDialog> {
     super.dispose();
   }
 
-  void _salvar() {
+  Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
     final categoria =
         _categoria.text.trim().isEmpty ? 'Geral' : _categoria.text.trim();
 
-    if (_editando) {
-      widget.controller.editarMeta(widget.meta!.copyWith(
-        titulo: _titulo.text.trim(),
-        descricao: _descricao.text.trim(),
-        categoria: categoria,
-        prazo: _prazo.text.trim(),
-        prioridade: _prioridade,
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _salvando = true;
+      _erro = null;
+    });
+
+    try {
+      if (_editando) {
+        await widget.controller.editarMeta(widget.meta!.copyWith(
+          titulo: _titulo.text.trim(),
+          descricao: _descricao.text.trim(),
+          categoria: categoria,
+          prazo: _prazo.text.trim(),
+          prioridade: _prioridade,
+        ));
+      } else {
+        await widget.controller.adicionarMeta(
+          titulo: _titulo.text,
+          descricao: _descricao.text,
+          categoria: categoria,
+          prazo: _prazo.text,
+          prioridade: _prioridade,
+        );
+      }
+
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(_editando
+            ? 'Meta atualizada com sucesso!'
+            : 'Meta adicionada com sucesso!'),
+        backgroundColor: _verdeEscuro,
+        behavior: SnackBarBehavior.floating,
       ));
-    } else {
-      widget.controller.adicionarMeta(
-        titulo: _titulo.text,
-        descricao: _descricao.text,
-        categoria: categoria,
-        prazo: _prazo.text,
-        prioridade: _prioridade,
-      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _salvando = false;
+        _erro = 'Não foi possível salvar. Tente novamente.';
+      });
     }
-    Navigator.pop(context);
   }
 
   @override
@@ -1008,6 +1191,8 @@ class _MetaFormDialogState extends State<_MetaFormDialog> {
       textoBotao: _editando ? 'Salvar' : 'Adicionar',
       formKey: _formKey,
       onSalvar: _salvar,
+      salvando: _salvando,
+      erro: _erro,
       campos: [
         _rotulo('Título da Meta *'),
         TextFormField(

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 enum StatusTarefa { aFazer, emAndamento, concluido }
@@ -17,7 +18,7 @@ String formatarHoraBr(TimeOfDay t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 class Tarefa {
-  final String id;
+  final String id; // id do documento no Firestore ('' enquanto não foi salva)
   final String titulo;
   final String disciplina;
   final String descricao;
@@ -64,4 +65,58 @@ class Tarefa {
         prioridade: prioridade,
         status: novo,
       );
+
+  // ---- Firestore ----
+
+  /// Converte um documento da coleção "kanban" em [Tarefa].
+  factory Tarefa.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final ts = d['data'];
+    final texto = (d['hora'] ?? '') as String;
+
+    TimeOfDay? hora;
+    if (texto.contains(':')) {
+      final p = texto.split(':');
+      hora = TimeOfDay(
+        hour: int.tryParse(p[0]) ?? 0,
+        minute: int.tryParse(p[1]) ?? 0,
+      );
+    }
+
+    return Tarefa(
+      id: doc.id,
+      titulo: (d['titulo'] ?? '') as String,
+      disciplina: (d['disciplina'] ?? '') as String,
+      descricao: (d['descricao'] ?? '') as String,
+      data: ts is Timestamp ? ts.toDate() : null,
+      hora: hora,
+      prioridade: (d['prioridade'] ?? 2) as int,
+      status: StatusTarefa.values.firstWhere(
+        (s) => s.name == d['status'],
+        orElse: () => StatusTarefa.aFazer,
+      ),
+    );
+  }
+
+  /// Campos gravados ao CRIAR. O "uid" separa os dados por usuário.
+  Map<String, dynamic> toMap(String uid) {
+    return {
+      'uid': uid,
+      ...toUpdateMap(),
+      'criadoEm': FieldValue.serverTimestamp(),
+    };
+  }
+
+  /// Campos atualizados ao EDITAR (uid e criadoEm não mudam).
+  Map<String, dynamic> toUpdateMap() {
+    return {
+      'titulo': titulo,
+      'disciplina': disciplina,
+      'descricao': descricao,
+      'data': data == null ? null : Timestamp.fromDate(data!),
+      'hora': hora == null ? '' : formatarHoraBr(hora!),
+      'prioridade': prioridade,
+      'status': status.name,
+    };
+  }
 }

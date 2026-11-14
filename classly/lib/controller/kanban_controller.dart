@@ -1,13 +1,33 @@
-import 'package:flutter/material.dart';
 import 'package:classly/model/tarefa_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-class KanbanController extends ChangeNotifier {
-  final List<Tarefa> _tarefas = [];
+class KanbanController {
+  // Coleção "kanban" do Firestore
+  final CollectionReference<Map<String, dynamic>> _colecao =
+      FirebaseFirestore.instance.collection('kanban');
+
+  static const Duration _limite = Duration(seconds: 10);
+
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+
+  // ---- Leitura em tempo real (StreamBuilder) ----
+
+  /// Escuta só as tarefas do Kanban do usuário logado.
+  Stream<List<Tarefa>> tarefasDoUsuario() {
+    return _colecao
+        .where('uid', isEqualTo: _uid ?? '')
+        .snapshots()
+        .map((snap) => snap.docs.map(Tarefa.fromDoc).toList());
+  }
+
+  // ---- Consultas sobre a lista recebida ----
 
   /// Tarefas de uma coluna: primeiro as com data mais próxima,
   /// depois (empate ou sem data) por prioridade.
-  List<Tarefa> tarefasDoStatus(StatusTarefa status) {
-    final lista = _tarefas.where((t) => t.status == status).toList()
+  static List<Tarefa> tarefasDoStatus(List<Tarefa> todas, StatusTarefa status) {
+    final lista = todas.where((t) => t.status == status).toList()
       ..sort((a, b) {
         final da = a.dataHora;
         final db = b.dataHora;
@@ -24,10 +44,12 @@ class KanbanController extends ChangeNotifier {
     return lista;
   }
 
-  int contar(StatusTarefa status) =>
-      _tarefas.where((t) => t.status == status).length;
+  static int contar(List<Tarefa> todas, StatusTarefa status) =>
+      todas.where((t) => t.status == status).length;
 
-  void adicionar({
+  // ---- CRUD no Firestore (lançam exceção se falhar) ----
+
+  Future<void> adicionar({
     required String titulo,
     String disciplina = '',
     String descricao = '',
@@ -35,9 +57,12 @@ class KanbanController extends ChangeNotifier {
     TimeOfDay? hora,
     required int prioridade,
     StatusTarefa status = StatusTarefa.aFazer,
-  }) {
-    _tarefas.add(Tarefa(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+  }) async {
+    final uid = _uid;
+    if (uid == null) throw StateError('Usuário não autenticado.');
+
+    final tarefa = Tarefa(
+      id: '', // o Firestore gera o id do documento
       titulo: titulo.trim(),
       disciplina: disciplina.trim(),
       descricao: descricao.trim(),
@@ -45,26 +70,24 @@ class KanbanController extends ChangeNotifier {
       hora: hora,
       prioridade: prioridade,
       status: status,
-    ));
-    notifyListeners();
+    );
+    await _colecao.add(tarefa.toMap(uid)).timeout(_limite);
   }
 
-  void editar(Tarefa atualizada) {
-    final i = _tarefas.indexWhere((t) => t.id == atualizada.id);
-    if (i == -1) return;
-    _tarefas[i] = atualizada;
-    notifyListeners();
+  Future<void> editar(Tarefa atualizada) async {
+    await _colecao
+        .doc(atualizada.id)
+        .update(atualizada.toUpdateMap())
+        .timeout(_limite);
   }
 
-  void mover(String id, StatusTarefa novoStatus) {
-    final i = _tarefas.indexWhere((t) => t.id == id);
-    if (i == -1) return;
-    _tarefas[i] = _tarefas[i].comStatus(novoStatus);
-    notifyListeners();
+  Future<void> mover(String id, StatusTarefa novoStatus) async {
+    await _colecao
+        .doc(id)
+        .update({'status': novoStatus.name}).timeout(_limite);
   }
 
-  void remover(String id) {
-    _tarefas.removeWhere((t) => t.id == id);
-    notifyListeners();
+  Future<void> remover(String id) async {
+    await _colecao.doc(id).delete().timeout(_limite);
   }
 }

@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 class LoginView extends StatefulWidget {
@@ -62,6 +64,53 @@ class _LoginViewState extends State<LoginView> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_mensagemErro(e))),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ocorreu um erro inesperado.')),
+      );
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
+  // Login com Google (Firebase Authentication)
+  Future<void> _entrarComGoogle() async {
+    setState(() => _carregando = true);
+
+    try {
+      final provider = GoogleAuthProvider();
+      final cred = kIsWeb
+          ? await FirebaseAuth.instance.signInWithPopup(provider)
+          : await FirebaseAuth.instance.signInWithProvider(provider);
+
+      final user = cred.user!;
+
+      // Na primeira vez, cria o perfil em "usuarios" (igual ao cadastro)
+      final ref =
+          FirebaseFirestore.instance.collection('usuarios').doc(user.uid);
+      if (!(await ref.get()).exists) {
+        await ref.set({
+          'uid': user.uid,
+          'nome': user.displayName ?? '',
+          'telefone': '',
+          'email': user.email ?? '',
+          'criadoEm': FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, 'inicio');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      // Fechar a janela do Google não é erro
+      if (e.code == 'popup-closed-by-user' ||
+          e.code == 'cancelled-popup-request') {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível entrar com o Google.')),
       );
     } catch (_) {
       if (!mounted) return;
@@ -358,7 +407,7 @@ class _LoginViewState extends State<LoginView> {
                       width: double.infinity,
                       height: 46,
                       child: OutlinedButton(
-                        onPressed: () {},
+                        onPressed: _carregando ? null : _entrarComGoogle,
                         style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white,
                           side: const BorderSide(color: _campoBorda),

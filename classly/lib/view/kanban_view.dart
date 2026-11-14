@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:classly/controller/kanban_controller.dart';
 import 'package:classly/model/tarefa_model.dart';
@@ -22,11 +24,82 @@ class _KanbanViewState extends State<KanbanView> {
   final KanbanController _controller = KanbanController();
   final ScrollController _scroll = ScrollController();
 
+  // Stream com as tarefas do Kanban do usuário (tempo real)
+  late Stream<List<Tarefa>> _stream;
+
+  // Arrastar e soltar: rola a lista sozinha quando o card chega na borda
+  final GlobalKey _areaKey = GlobalKey();
+  Timer? _timerArraste;
+  double? _arrasteX;
+
+  void _iniciarArraste() {
+    _timerArraste?.cancel();
+    _timerArraste = Timer.periodic(
+      const Duration(milliseconds: 16),
+      (_) => _rolarSeNecessario(),
+    );
+  }
+
+  void _moverArraste(Offset posicaoGlobal) => _arrasteX = posicaoGlobal.dx;
+
+  void _pararArraste() {
+    _timerArraste?.cancel();
+    _timerArraste = null;
+    _arrasteX = null;
+  }
+
+  void _rolarSeNecessario() {
+    final x = _arrasteX;
+    final box = _areaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (x == null || box == null || !_scroll.hasClients) return;
+
+    final local = box.globalToLocal(Offset(x, 0)).dx;
+    const borda = 50.0;
+    const passo = 8.0;
+
+    double? destino;
+    if (local < borda) {
+      destino = _scroll.offset - passo;
+    } else if (local > box.size.width - borda) {
+      destino = _scroll.offset + passo;
+    }
+    if (destino == null) return;
+
+    _scroll.jumpTo(destino.clamp(0.0, _scroll.position.maxScrollExtent));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = _controller.tarefasDoUsuario();
+  }
+
   @override
   void dispose() {
-    _controller.dispose();
+    _timerArraste?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _mensagem(String texto, {bool erro = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(texto),
+          backgroundColor: erro ? Colors.red.shade700 : _verdeEscuro,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  Future<void> _mover(Tarefa t, StatusTarefa novo) async {
+    try {
+      await _controller.mover(t.id, novo);
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível mover a tarefa.', erro: true);
+    }
   }
 
   Future<void> _abrirFormulario([Tarefa? tarefa]) => showDialog(
@@ -52,7 +125,16 @@ class _KanbanViewState extends State<KanbanView> {
         ],
       ),
     );
-    if (confirmou == true) _controller.remover(t.id);
+    if (confirmou != true) return;
+
+    try {
+      await _controller.remover(t.id);
+      if (!mounted) return;
+      _mensagem('Tarefa removida.');
+    } catch (_) {
+      if (!mounted) return;
+      _mensagem('Não foi possível remover a tarefa.', erro: true);
+    }
   }
 
   /// Toque longo no card: mover de coluna, editar ou excluir.
@@ -84,7 +166,7 @@ class _KanbanViewState extends State<KanbanView> {
                   title: Text('Mover para ${s.nome}'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _controller.mover(t.id, s);
+                    _mover(t, s);
                   },
                 ),
             ListTile(
@@ -169,10 +251,29 @@ class _KanbanViewState extends State<KanbanView> {
                         style: TextStyle(color: Color(0xFF64748B))),
                     const SizedBox(height: 20),
                     SizedBox(
+                      key: _areaKey,
                       height: 480,
-                      child: ListenableBuilder(
-                        listenable: _controller,
-                        builder: (context, _) {
+                      // StreamBuilder: atualiza sozinho quando o Firestore muda
+                      child: StreamBuilder<List<Tarefa>>(
+                        stream: _stream,
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return _ErroKanban(
+                              onTentarNovamente: () => setState(() =>
+                                  _stream = _controller.tarefasDoUsuario()),
+                            );
+                          }
+
+                          if (snapshot.connectionState ==
+                                  ConnectionState.waiting &&
+                              !snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(color: _verde),
+                            );
+                          }
+
+                          final todas = snapshot.data ?? const <Tarefa>[];
+
                           return Scrollbar(
                             controller: _scroll,
                             thumbVisibility: true,
@@ -185,9 +286,13 @@ class _KanbanViewState extends State<KanbanView> {
                                 for (final s in StatusTarefa.values)
                                   _ColunaKanban(
                                     status: s,
-                                    tarefas: _controller.tarefasDoStatus(s),
+                                    tarefas: KanbanController.tarefasDoStatus(todas, s),
                                     onTocar: _abrirFormulario,
                                     onSegurar: _abrirAcoes,
+                                    onSoltar: _mover,
+                                    onInicioArraste: _iniciarArraste,
+                                    onMoverArraste: _moverArraste,
+                                    onFimArraste: _pararArraste,
                                   ),
                               ],
                             ),
@@ -210,18 +315,57 @@ class _KanbanViewState extends State<KanbanView> {
 }
 
 
+// Tela mostrada quando a leitura do Firestore falha
+class _ErroKanban extends StatelessWidget {
+  final VoidCallback onTentarNovamente;
+  const _ErroKanban({required this.onTentarNovamente});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off_outlined,
+              size: 48, color: Color(0xFF64748B)),
+          const SizedBox(height: 12),
+          const Text('Não foi possível carregar as suas tarefas.',
+              textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: onTentarNovamente,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _verde,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Tentar novamente'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // Coluna
 class _ColunaKanban extends StatelessWidget {
   final StatusTarefa status;
   final List<Tarefa> tarefas;
   final void Function(Tarefa) onTocar;
-  final void Function(Tarefa) onSegurar;
+  final void Function(Tarefa) onSegurar; // menu (três pontinhos)
+  final void Function(Tarefa, StatusTarefa) onSoltar;
+  final VoidCallback onInicioArraste;
+  final void Function(Offset) onMoverArraste;
+  final VoidCallback onFimArraste;
 
   const _ColunaKanban({
     required this.status,
     required this.tarefas,
     required this.onTocar,
     required this.onSegurar,
+    required this.onSoltar,
+    required this.onInicioArraste,
+    required this.onMoverArraste,
+    required this.onFimArraste,
   });
 
   @override
@@ -244,7 +388,13 @@ class _ColunaKanban extends StatelessWidget {
         ),
     };
 
-    return Container(
+    // Cada coluna aceita cards soltos de outras colunas
+    return DragTarget<Tarefa>(
+      onWillAcceptWithDetails: (d) => d.data.status != status,
+      onAcceptWithDetails: (d) => onSoltar(d.data, status),
+      builder: (context, candidatos, _) {
+        final destacar = candidatos.isNotEmpty;
+        return Container(
       width: 270,
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.all(14),
@@ -254,7 +404,10 @@ class _ColunaKanban extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: borda),
+        border: Border.all(
+          color: destacar ? const Color(0xFF00897B) : borda,
+          width: destacar ? 2 : 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,15 +444,45 @@ class _ColunaKanban extends StatelessWidget {
                 : ListView.separated(
                     itemCount: tarefas.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (_, i) => _CartaoTarefa(
-                      tarefa: tarefas[i],
-                      onTocar: () => onTocar(tarefas[i]),
-                      onSegurar: () => onSegurar(tarefas[i]),
-                    ),
+                    itemBuilder: (_, i) {
+                      final t = tarefas[i];
+                      final cartao = _CartaoTarefa(
+                        tarefa: t,
+                        onTocar: () => onTocar(t),
+                        onSegurar: () => onSegurar(t),
+                      );
+
+                      // Segure o card para arrastar até outra coluna
+                      return LongPressDraggable<Tarefa>(
+                        data: t,
+                        delay: const Duration(milliseconds: 250),
+                        onDragStarted: onInicioArraste,
+                        onDragUpdate: (d) => onMoverArraste(d.globalPosition),
+                        onDragEnd: (_) => onFimArraste(),
+                        feedback: Material(
+                          color: Colors.transparent,
+                          child: SizedBox(
+                            width: 240,
+                            child: Opacity(
+                              opacity: 0.92,
+                              child: _CartaoTarefa(
+                                tarefa: t,
+                                onTocar: () {},
+                                onSegurar: () {},
+                              ),
+                            ),
+                          ),
+                        ),
+                        childWhenDragging: Opacity(opacity: 0.3, child: cartao),
+                        child: cartao,
+                      );
+                    },
                   ),
           ),
         ],
       ),
+    );
+      },
     );
   }
 }
@@ -336,8 +519,7 @@ class _CartaoTarefa extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onTocar, // toque = editar
-        onLongPress: onSegurar, // toque longo = mover / excluir
+        onTap: onTocar, // toque = editar (segurar e arrastar = mover)
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -365,6 +547,16 @@ class _CartaoTarefa extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                                 color: corPrioridade)),
                       ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Menu: mover, editar ou excluir
+                  InkWell(
+                    onTap: onSegurar,
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.more_vert,
+                          size: 18, color: Color(0xFF64748B)),
                     ),
                   ),
                 ],
@@ -460,6 +652,8 @@ class _TarefaFormDialogState extends State<_TarefaFormDialog> {
   DateTime? _data;
   TimeOfDay? _hora;
   late int _prioridade;
+  bool _salvando = false;
+  String? _erroSalvar;
 
   bool get _editando => widget.tarefa != null;
   bool get _podeSalvar => _titulo.text.trim().isNotEmpty;
@@ -507,31 +701,56 @@ class _TarefaFormDialogState extends State<_TarefaFormDialog> {
     if (t != null) setState(() => _hora = t);
   }
 
-  void _salvar() {
+  Future<void> _salvar() async {
     if (!_podeSalvar) return;
-    if (_editando) {
-      final antiga = widget.tarefa!;
-      widget.controller.editar(Tarefa(
-        id: antiga.id,
-        titulo: _titulo.text.trim(),
-        disciplina: _disciplina.text.trim(),
-        descricao: _descricao.text.trim(),
-        data: _data,
-        hora: _hora,
-        prioridade: _prioridade,
-        status: antiga.status,
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _salvando = true;
+      _erroSalvar = null;
+    });
+
+    try {
+      if (_editando) {
+        final antiga = widget.tarefa!;
+        await widget.controller.editar(Tarefa(
+          id: antiga.id,
+          titulo: _titulo.text.trim(),
+          disciplina: _disciplina.text.trim(),
+          descricao: _descricao.text.trim(),
+          data: _data,
+          hora: _hora,
+          prioridade: _prioridade,
+          status: antiga.status,
+        ));
+      } else {
+        await widget.controller.adicionar(
+          titulo: _titulo.text,
+          disciplina: _disciplina.text,
+          descricao: _descricao.text,
+          data: _data,
+          hora: _hora,
+          prioridade: _prioridade,
+        );
+      }
+
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(_editando
+            ? 'Tarefa atualizada com sucesso!'
+            : 'Tarefa criada com sucesso!'),
+        backgroundColor: _verdeEscuro,
+        behavior: SnackBarBehavior.floating,
       ));
-    } else {
-      widget.controller.adicionar(
-        titulo: _titulo.text,
-        disciplina: _disciplina.text,
-        descricao: _descricao.text,
-        data: _data,
-        hora: _hora,
-        prioridade: _prioridade,
-      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _salvando = false;
+        _erroSalvar = 'Não foi possível salvar. Tente novamente.';
+      });
     }
-    Navigator.pop(context);
   }
 
   @override
@@ -640,6 +859,12 @@ class _TarefaFormDialogState extends State<_TarefaFormDialog> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  if (_erroSalvar != null) ...[
+                    Text(_erroSalvar!,
+                        style: TextStyle(
+                            color: Colors.red.shade700, fontSize: 13)),
+                    const SizedBox(height: 8),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     height: 52,
@@ -650,7 +875,7 @@ class _TarefaFormDialogState extends State<_TarefaFormDialog> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: ElevatedButton(
-                        onPressed: _podeSalvar ? _salvar : null,
+                        onPressed: _podeSalvar && !_salvando ? _salvar : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           disabledBackgroundColor: Colors.transparent,
@@ -658,14 +883,25 @@ class _TarefaFormDialogState extends State<_TarefaFormDialog> {
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16)),
                         ),
-                        child: Text(
-                          _editando ? 'Salvar Alterações' : 'Criar Tarefa',
-                          style: TextStyle(
-                              color: _podeSalvar
-                                  ? Colors.white
-                                  : const Color(0xFF6B7280),
-                              fontWeight: FontWeight.w700),
-                        ),
+                        child: _salvando
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                _editando
+                                    ? 'Salvar Alterações'
+                                    : 'Criar Tarefa',
+                                style: TextStyle(
+                                    color: _podeSalvar
+                                        ? Colors.white
+                                        : const Color(0xFF6B7280),
+                                    fontWeight: FontWeight.w700),
+                              ),
                       ),
                     ),
                   ),
